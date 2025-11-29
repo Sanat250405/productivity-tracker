@@ -1,184 +1,132 @@
+// client/src/pages/Dashboard/Dashboard.jsx
 import React, { useEffect, useState } from 'react';
-import API from '../../api';
+import { useToast } from '../../components/Toast';
 
-// must match keys used in Routine page
+// localStorage keys
 const ACTIVITIES_KEY = 'pt_activities_v1';
+const ROUTINES_KEY = 'pt_routines_v1';
+// eslint-disable-next-line
+const GOALS_KEY = 'pt_goals_dummy'; // future use
 
-// helper: load local activities
-function loadLocalActivities() {
-    try {
-        const raw = localStorage.getItem(ACTIVITIES_KEY);
-        return raw ? JSON.parse(raw) : [];
-    } catch {
-        return [];
-    }
+function loadActivities() {
+  try {
+    let raw = localStorage.getItem(ACTIVITIES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 }
 
-// helper: format ISO to readable
-function fmt(iso) {
-    try {
-        return new Date(iso).toLocaleString();
-    } catch {
-        return iso;
-    }
-}
-
-// helper: get date string YYYY-MM-DD
-function dateStr(iso) {
-    return new Date(iso).toISOString().split('T')[0];
+function loadRoutines() {
+  try {
+    const raw = localStorage.getItem(ROUTINES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 }
 
 export default function Dashboard() {
-    const [loading, setLoading] = useState(false);
-    const [activities, setActivities] = useState([]); // merged activities
-    const [streak, setStreak] = useState(0);
+  const { show } = useToast();
 
-    // fetch backend goals and merge with local activities
-    const refresh = async () => {
-        setLoading(true);
-        try {
-            // fetch goals from backend
-            const res = await API.get('/goals').catch(() => ({ data: [] }));
-            const goals = res.data || [];
+  const [todayActivities, setTodayActivities] = useState([]);
+  const [streak, setStreak] = useState(0);
 
-            // map completed goals to activity-like objects
-            const goalActivities = (goals || [])
-                .filter(g => g.completed)
-                .map(g => ({
-                    _id: 'g_' + g._id,
-                    type: 'goal',
-                    refId: g._id,
-                    title: g.title,
-                    completedAt: g.completedAt || g.createdAt
-                }));
+  const activities = loadActivities();
 
-            // local routine activities
-            const local = loadLocalActivities().map(a => ({
-                ...a,
-                // ensure fields match
-                completedAt: a.completedAt || a.createdAt
-            }));
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line
+  }, []);
 
-            // combine and sort by completedAt desc
-            const merged = [...goalActivities, ...local].sort((a, b) => {
-                return new Date(b.completedAt) - new Date(a.completedAt);
-            });
+  const refresh = () => {
+    const todayStr = new Date().toISOString().split('T')[0];
 
-            setActivities(merged);
-            computeStreak(merged);
-        } catch (err) {
-            console.error('Failed to refresh dashboard', err);
-            const localOnly = loadLocalActivities().sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
-            setActivities(localOnly);
-            computeStreak(localOnly);
-        } finally {
-            setLoading(false);
-        }
-    };
+    // filter today's activities
+    const today = activities.filter(a => a.dateString === todayStr);
+    setTodayActivities(today);
 
-    // compute simple streak: consecutive days upto today that have >=1 activity
-    function computeStreak(list) {
-        if (!list || list.length === 0) {
-            setStreak(0);
-            return;
-        }
-        const daysSet = new Set(list.map(a => dateStr(a.completedAt)));
-        // start from today, count back consecutive days present in daysSet
-        let count = 0;
-        let cur = new Date();
+    // calculate streak
+    setStreak(calculateStreak());
+  };
 
-        // if no activity today, we still allow streak to be based on most recent day (your rule can be changed)
-        while (true) {
-            const ds = dateStr(cur.toISOString());
-            if (daysSet.has(ds)) {
-                count++;
-                cur.setDate(cur.getDate() - 1);
-            } else {
-                break;
-            }
-        }
-        setStreak(count);
+  // calculate streak from local activities
+  const calculateStreak = () => {
+    if (!activities.length) return 0;
+
+    const daysSet = new Set(activities.map(a => a.dateString));
+    let count = 0;
+    let d = new Date();
+
+    while (true) {
+      const dayStr = d.toISOString().split('T')[0];
+      if (daysSet.has(dayStr)) {
+        count++;
+        d.setDate(d.getDate() - 1);
+      } else break;
     }
 
+    return count;
+  };
 
-    useEffect(() => {
-        refresh();
+  const routines = loadRoutines();
 
-        const onStorage = (e) => {
-            if (e.key === ACTIVITIES_KEY) refresh();
-        };
-        window.addEventListener('storage', onStorage);
-        return () => window.removeEventListener('storage', onStorage);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+  const todayStr = new Date().toISOString().split('T')[0];
 
+  const doneRoutinesToday = todayActivities.filter(a => a.type === 'routine').length;
+  const doneGoalsToday = todayActivities.filter(a => a.type === 'goal').length;
 
-    // quick: mark an activity as "locally removed" (UI only) - won't affect backend
-    const removeLocalActivity = (id) => {
-        const keep = activities.filter(a => a._id !== id);
-        setActivities(keep);
-        // also remove from localStorage if it is a local activity id (starts with 'a_')
-        if (id.startsWith('a_')) {
-            const local = loadLocalActivities().filter(a => a._id !== id);
-            localStorage.setItem(ACTIVITIES_KEY, JSON.stringify(local));
-        }
-    };
+  const totalRoutines = routines.length;
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const todays = activities.filter(a => dateStr(a.completedAt) === todayStr);
+  return (
+    <div>
+      <div className="header-row">
+        <h2>Dashboard</h2>
+        <span style={{ color: '#6b7280' }}>
+          Overview of today & progress
+        </span>
+      </div>
 
-    return (
-        <div>
-            <div className="header-row">
-                <h2>Dashboard</h2>
-                <div className="streak-display">
-                    <span style={{ fontSize: '22px' }}>🔥</span>
-                    {streak} day streak
-                </div>
+      {/* STREAK CARD */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          🔥 Streak
+        </h3>
 
-
-            </div>
-
-            <div className="card" style={{ marginBottom: 12 }}>
-                <h3>Today's Activity</h3>
-                {loading && <div style={{ color: '#6b7280' }}>Loading...</div>}
-                {!loading && todays.length === 0 && <div style={{ color: '#6b7280' }}>No activity recorded today.</div>}
-                <ul style={{ paddingLeft: 18 }}>
-                    {todays.map(a => (
-                        <li key={a._id} style={{ marginBottom: 8 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div>
-                                    <strong>{a.title}</strong>
-                                    <div style={{ fontSize: 12, color: '#6b7280' }}>{a.type} · {fmt(a.completedAt)}</div>
-                                </div>
-                                <div>
-                                    <button className="button small" onClick={() => removeLocalActivity(a._id)}>Remove</button>
-                                </div>
-                            </div>
-                        </li>
-                    ))}
-                </ul>
-            </div>
-
-            <div className="card">
-                <h3>Recent activity</h3>
-                {activities.length === 0 && <div style={{ color: '#6b7280' }}>No activity yet.</div>}
-                <ul style={{ paddingLeft: 18 }}>
-                    {activities.map(a => (
-                        <li key={a._id} style={{ marginBottom: 8 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div>
-                                    <strong>{a.title}</strong>
-                                    <div style={{ fontSize: 12, color: '#6b7280' }}>{a.type} · {fmt(a.completedAt)}</div>
-                                </div>
-                                <div>
-                                    <button className="button small" onClick={() => removeLocalActivity(a._id)}>Remove</button>
-                                </div>
-                            </div>
-                        </li>
-                    ))}
-                </ul>
-            </div>
+        <div style={{ fontSize: 32, fontWeight: 'bold' }}>
+          {streak} day{streak !== 1 ? 's' : ''}
         </div>
-    );
+
+        <div style={{ fontSize: 12, color: '#6b7280' }}>
+          You must complete at least 1 routine or goal per day to keep your streak going.
+        </div>
+      </div>
+
+      {/* TODAY'S SUMMARY */}
+      <div className="card">
+        <h3>Today</h3>
+
+        <div style={{ marginBottom: 12, fontSize: 14 }}>
+          Date: <strong>{todayStr}</strong>
+        </div>
+
+        <div style={{ marginBottom: 8 }}>
+          <strong>Routines Completed:</strong> {doneRoutinesToday} / {totalRoutines}
+        </div>
+
+        <div style={{ marginBottom: 8 }}>
+          <strong>Goals Completed:</strong> {doneGoalsToday}
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <button className="button" onClick={() => {
+            refresh();
+            show("Dashboard refreshed", "success");
+          }}>
+            Refresh
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

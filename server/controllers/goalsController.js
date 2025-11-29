@@ -56,3 +56,27 @@ exports.deleteGoal = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 };
+// Update (edit) a goal
+exports.updateGoal = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description, completed } = req.body;
+
+    const goal = await Goal.findById(id);
+    if (!goal) return res.status(404).json({ error: 'Goal not found' });
+
+    if (title !== undefined) goal.title = title;
+    if (description !== undefined) goal.description = description;
+    // optional: allow updating completed flag from frontend
+    if (completed !== undefined) {
+      goal.completed = !!completed;
+      goal.completedAt = goal.completed ? (goal.completedAt || new Date()) : null;
+    }
+
+    await goal.save();
+    res.json(goal);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
