@@ -24,7 +24,6 @@ exports.createGoal = async (req, res) => {
   }
 };
 
-// NEW: mark a goal as completed
 exports.completeGoal = async (req, res) => {
   try {
     const { id } = req.params;
@@ -37,6 +36,21 @@ exports.completeGoal = async (req, res) => {
     await goal.save();
 
     res.json(goal);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// NEW: delete a goal
+exports.deleteGoal = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const goal = await Goal.findById(id);
+    if (!goal) return res.status(404).json({ error: 'Goal not found' });
+
+    await Goal.findByIdAndDelete(id);
+    res.json({ success: true, message: 'Goal deleted' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
