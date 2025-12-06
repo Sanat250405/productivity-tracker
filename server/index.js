@@ -9,6 +9,9 @@ const goalsRoutes = require('./routes/goals');
 
 const app = express();
 app.use(cors());
+const firebaseAuth = require('./middleware/firebaseAuth');
+app.use(firebaseAuth);
+
 app.use(express.json());
 
 // connect to mongo
