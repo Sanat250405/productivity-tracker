@@ -134,55 +134,55 @@ export default function Goals() {
   };
 
   // replace confirmDeleteGoal in client/src/pages/Goals/Goals.jsx
-const confirmDeleteGoal = async () => {
-  if (!deleteId) return;
-  try {
-    setDeleting(true);
-
-    // 1) Delete the goal on server
-    await API.delete(`/goals/${deleteId}`);
-
-    // 2) Remove related local activities (immediate Dashboard fix)
+  const confirmDeleteGoal = async () => {
+    if (!deleteId) return;
     try {
-      const local = loadActivitiesLocal(); // uses same helper above
-      const filtered = local.filter(a => !(a.type === 'goal' && String(a.refId) === String(deleteId)));
-      saveActivitiesLocal(filtered);
-    } catch (errLocal) {
-      console.warn('Failed to remove local activities for deleted goal', errLocal);
-    }
+      setDeleting(true);
 
-    // 3) Best-effort: remove server-side activities referencing this goal
-    //    We don't fail the deletion flow if this part errors.
-    (async () => {
+      // 1) Delete the goal on server
+      await API.delete(`/goals/${deleteId}`);
+
+      // 2) Remove related local activities (immediate Dashboard fix)
       try {
-        const res = await API.get('/activities');
-        const activities = Array.isArray(res.data) ? res.data : [];
-        const matches = activities.filter(a => a.type === 'goal' && String(a.refId) === String(deleteId));
-        for (const act of matches) {
-          try {
-            await API.delete(`/activities/${act._id}`);
-          } catch (delErr) {
-            console.warn('Failed to delete server activity', act._id, delErr);
-            // continue deleting other matches
-          }
-        }
-      } catch (errFetch) {
-        console.warn('Could not fetch activities to clean up server-side', errFetch);
+        const local = loadActivitiesLocal(); // uses same helper above
+        const filtered = local.filter(a => !(a.type === 'goal' && String(a.refId) === String(deleteId)));
+        saveActivitiesLocal(filtered);
+      } catch (errLocal) {
+        console.warn('Failed to remove local activities for deleted goal', errLocal);
       }
-    })();
 
-    // 4) Update local goals state and UI
-    setGoals(prev => prev.filter(g => g._id !== deleteId));
-    show('Goal deleted and related activities removed', 'success');
-  } catch (err) {
-    console.error('Delete failed', err);
-    show('Failed to delete', 'error');
-  } finally {
-    setDeleting(false);
-    setDeleteId(null);
-    setShowDeleteModal(false);
-  }
-};
+      // 3) Best-effort: remove server-side activities referencing this goal
+      //    We don't fail the deletion flow if this part errors.
+      (async () => {
+        try {
+          const res = await API.get('/activities');
+          const activities = Array.isArray(res.data) ? res.data : [];
+          const matches = activities.filter(a => a.type === 'goal' && String(a.refId) === String(deleteId));
+          for (const act of matches) {
+            try {
+              await API.delete(`/activities/${act._id}`);
+            } catch (delErr) {
+              console.warn('Failed to delete server activity', act._id, delErr);
+              // continue deleting other matches
+            }
+          }
+        } catch (errFetch) {
+          console.warn('Could not fetch activities to clean up server-side', errFetch);
+        }
+      })();
+
+      // 4) Update local goals state and UI
+      setGoals(prev => prev.filter(g => g._id !== deleteId));
+      show('Goal deleted and related activities removed', 'success');
+    } catch (err) {
+      console.error('Delete failed', err);
+      show('Failed to delete', 'error');
+    } finally {
+      setDeleting(false);
+      setDeleteId(null);
+      setShowDeleteModal(false);
+    }
+  };
 
 
   // Complete goal: call server, create local fallback activity, attempt to POST /activities
@@ -268,8 +268,8 @@ const confirmDeleteGoal = async () => {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div className="search-input" style={{ display: 'flex', alignItems: 'center' }}>
             <svg style={{ width: 18, height: 18, marginLeft: 10, marginRight: 8 }} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              <circle cx="11" cy="11" r="6" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="11" cy="11" r="6" stroke="currentColor" strokeWidth="1.5" />
             </svg>
             <input
               placeholder="Search goals or descriptions..."
@@ -457,7 +457,20 @@ const confirmDeleteGoal = async () => {
           </div>
         </div>
       )}
+  {/* ... inside Goals.jsx return (...)*/}
 
+      <div
+        className="floating-fab" // <--- ADD THIS CLASS
+        style={{
+          position: 'fixed',
+          right: 20,
+          bottom: 20, // Desktop position
+          zIndex: 100
+          // ...
+        }}
+      >
+        {/* Your button code */}
+      </div>
       {/* Delete confirmation modal */}
       {showDeleteModal && (
         <div className="modal-overlay">

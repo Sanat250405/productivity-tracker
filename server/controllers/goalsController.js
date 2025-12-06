@@ -1,162 +1,133 @@
 // server/controllers/goalsController.js
 const Goal = require('../models/Goal');
+const Activity = require('../models/Activity');
 
-function isOwnerOrAdmin(req, resourceUserId) {
-  // resourceUserId may be undefined for legacy docs
-  if (!req.user) return false;
-  if (req.user.isAdmin) return true;
-  if (!resourceUserId) return false; // legacy doc without owner => only admin allowed
-  return resourceUserId.toString() === req.user.uid;
-}
-
-exports.getGoals = async (req, res) => {
+// @desc    Get goals
+// @route   GET /api/goals
+const getGoals = async (req, res) => {
   try {
-    // Admin sees everything
-    if (req.user && req.user.isAdmin) {
-      const goals = await Goal.find().sort({ createdAt: -1 });
-      return res.json(goals);
+    // 1. Safety Check
+    if (!req.user) {
+        return res.status(401).json({ message: 'Not authorized' });
     }
 
-    // Normal users must be authenticated and see only their own goals
-    if (!req.user || !req.user.uid) {
-      return res.status(401).json({ error: 'Authentication required' });
+    let query = {};
+
+    // 2. LOGIC: Admin sees ALL. User sees OWN.
+    if (req.user.isAdmin) {
+        console.log(`👑 Admin Access: Fetching ALL goals for ${req.user.email}`);
+        query = {}; // Empty query = Find Everything
+    } else {
+        // Normal User
+        query = { user: req.user.uid };
     }
 
-    const goals = await Goal.find({ user: req.user.uid }).sort({ createdAt: -1 });
-    res.json(goals);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    const goals = await Goal.find(query).sort({ createdAt: -1 });
+    res.status(200).json(goals);
+  } catch (error) {
+    console.error('Fetch Error:', error);
+    res.status(500).json({ message: error.message });
   }
 };
 
-exports.createGoal = async (req, res) => {
+const createGoal = async (req, res) => {
+  if (!req.body.title) {
+    return res.status(400).json({ message: 'Please add a text field' });
+  }
+
   try {
-    const { title, description } = req.body;
-    if (!title) return res.status(400).json({ error: 'Title is required' });
-
-    // require authentication to create goals
-    if (!req.user || !req.user.uid) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const g = new Goal({ title, description, user: req.user.uid });
-    await g.save();
-    res.status(201).json(g);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    const goal = await Goal.create({
+      title: req.body.title,
+      description: req.body.description || '',
+      user: req.user.uid, 
+    });
+    res.status(200).json(goal);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 
-exports.completeGoal = async (req, res) => {
+const updateGoal = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const goal = await Goal.findById(id);
-    if (!goal) return res.status(404).json({ error: 'Goal not found' });
-
-    // Ownership check: allow only owner or admin
-    if (!isOwnerOrAdmin(req, goal.user)) {
-      return res.status(403).json({ error: 'Forbidden' });
+    const goal = await Goal.findById(req.params.id);
+    if (!goal) return res.status(404).json({ message: 'Goal not found' });
+    
+    // Allow if Owner OR Admin
+    if (goal.user !== req.user.uid && !req.user.isAdmin) {
+      return res.status(401).json({ message: 'User not authorized' });
     }
 
-    if (goal.completed) return res.status(400).json({ error: 'Goal already completed' });
-
-    goal.completed = true;
-    goal.completedAt = new Date();
-    await goal.save();
-
-    // ----------------------------------------------
-    // CREATE ACTIVITY (idempotent) — attach user if available
-    // ----------------------------------------------
-    try {
-      const Activity = require('../models/Activity');
-
-      const now = new Date();
-      const dateString = now.toISOString().split('T')[0];
-
-      // Check if an activity already exists for this goal today
-      const existing = await Activity.findOne({
-        type: 'goal',
-        refId: goal._id.toString(),
-        dateString
-      });
-
-      if (!existing) {
-        const activityPayload = {
-          type: 'goal',
-          refId: goal._id.toString(),
-          title: goal.title || goal.name || 'Goal',
-          completedAt: now,
-          dateString
-        };
-
-        // attach owner if available
-        if (req.user && req.user.uid) activityPayload.user = req.user.uid;
-
-        await Activity.create(activityPayload);
-      }
-    } catch (err) {
-      console.error('Activity creation failed (non-fatal):', err);
-      // DO NOT return error — main response must still succeed
-    }
-    // ----------------------------------------------
-
-    res.json(goal);
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    const updatedGoal = await Goal.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    res.status(200).json(updatedGoal);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 
-// delete a goal
-exports.deleteGoal = async (req, res) => {
+const deleteGoal = async (req, res) => {
   try {
-    const { id } = req.params;
-    const goal = await Goal.findById(id);
-    if (!goal) return res.status(404).json({ error: 'Goal not found' });
+    const goal = await Goal.findById(req.params.id);
+    if (!goal) return res.status(404).json({ message: 'Goal not found' });
 
-    // Ownership check
-    if (!isOwnerOrAdmin(req, goal.user)) {
-      return res.status(403).json({ error: 'Forbidden' });
+    // Allow if Owner OR Admin
+    if (goal.user !== req.user.uid && !req.user.isAdmin) {
+      return res.status(401).json({ message: 'User not authorized' });
     }
 
-    await Goal.findByIdAndDelete(id);
-    res.json({ success: true, message: 'Goal deleted' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    await goal.deleteOne();
+    res.status(200).json({ id: req.params.id });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 
-// Update (edit) a goal
-exports.updateGoal = async (req, res) => {
+const completeGoal = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { title, description, completed } = req.body;
+    const goal = await Goal.findById(req.params.id);
+    if (!goal) return res.status(404).json({ message: 'Goal not found' });
 
-    const goal = await Goal.findById(id);
-    if (!goal) return res.status(404).json({ error: 'Goal not found' });
-
-    // Ownership check
-    if (!isOwnerOrAdmin(req, goal.user)) {
-      return res.status(403).json({ error: 'Forbidden' });
+    // Allow if Owner OR Admin
+    if (goal.user !== req.user.uid && !req.user.isAdmin) {
+      return res.status(401).json({ message: 'User not authorized' });
     }
 
-    if (title !== undefined) goal.title = title;
-    if (description !== undefined) goal.description = description;
-    // optional: allow updating completed flag from frontend
-    if (completed !== undefined) {
-      goal.completed = !!completed;
-      goal.completedAt = goal.completed ? (goal.completedAt || new Date()) : null;
+    // Toggle completed status
+    goal.completed = !goal.completed;
+
+    // FIX: Update the timestamp!
+    if (goal.completed) {
+        goal.completedAt = new Date(); // <--- This saves the date
+    } else {
+        goal.completedAt = null; // Clear date if un-checking
+    }
+    
+    // Create Activity Log (for Dashboard & Consistency Page)
+    if (goal.completed) {
+        try {
+            await Activity.create({
+                user: req.user.uid,
+                type: 'goal',
+                title: goal.title,
+                refId: goal._id,
+                dateString: new Date().toISOString().split('T')[0]
+            });
+        } catch(e) { 
+            console.log("Activity create skipped (non-fatal)"); 
+        }
     }
 
     await goal.save();
-    res.json(goal);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(200).json(goal);
+  } catch (error) {
+    console.error('Complete Goal Error:', error);
+    res.status(500).json({ message: error.message });
   }
+};
+
+module.exports = {
+  getGoals,
+  createGoal,
+  updateGoal,
+  deleteGoal,
+  completeGoal,
 };

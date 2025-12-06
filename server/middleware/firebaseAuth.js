@@ -1,25 +1,47 @@
 // server/middleware/firebaseAuth.js
 const admin = require('../firebaseAdmin');
 
-module.exports = async (req, res, next) => {
+// 👇 REPLACE THIS WITH YOUR REAL EMAIL 👇
+const ADMIN_EMAILS = [
+  'roy@example.com', 
+  'sanat@example.com' 
+];
+
+const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization || req.headers.Authorization;
+  
+  // DEBUG LOG: Tell us if the header arrived
+  console.log('--- Auth Debug ---');
+  console.log('1. Header received:', authHeader ? 'Yes' : 'NO HEADER');
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    req.user = null; // unauthenticated
-    return next();
+    console.log('2. Result: REJECTED (No Bearer token)');
+    return res.status(401).json({ message: 'No token, authorization denied' });
   }
 
   const idToken = authHeader.split(' ')[1];
+  console.log('2. Token snippet:', idToken.substring(0, 10) + '...');
+  
   try {
     const decoded = await admin.auth().verifyIdToken(idToken);
-    // decoded contains uid, email, and any custom claims (e.g., admin)
+    
+    // Check if user is in our hardcoded Admin list OR has a Firebase custom claim
+    const isAdmin = ADMIN_EMAILS.includes(decoded.email) || !!decoded.admin;
+
+    console.log(`3. Result: SUCCESS for ${decoded.email} (Admin: ${isAdmin})`);
+    
     req.user = {
       uid: decoded.uid,
       email: decoded.email || null,
-      isAdmin: !!decoded.admin // set custom claim 'admin' on admin users
+      isAdmin: isAdmin 
     };
+    
+    next();
   } catch (err) {
-    console.warn('Firebase token verify failed:', err.message);
-    req.user = null;
+    console.log('3. Result: FAILED verification');
+    console.error('   Error details:', err.message);
+    return res.status(401).json({ message: 'Token is not valid' });
   }
-  return next();
 };
+
+module.exports = { verifyToken };

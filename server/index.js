@@ -2,30 +2,31 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
-const activitiesRouter = require('./routes/activities');
 
 const connectDB = require('./config/db');
 const goalsRoutes = require('./routes/goals');
+const activitiesRouter = require('./routes/activities');
 
 const app = express();
+
+// Middleware
 app.use(cors());
-const firebaseAuth = require('./middleware/firebaseAuth');
-app.use(firebaseAuth);
+app.use(express.json()); // Allow parsing JSON bodies
 
-app.use(express.json());
-
-// connect to mongo
+// Connect to MongoDB
 connectDB();
 
-// mount API routes
+// Mount API routes
+// (Auth is handled INSIDE these route files, so we don't need it globally here)
 app.use('/api/goals', goalsRoutes);
 app.use('/api/activities', activitiesRouter);
-// health route — add before your error handlers
+
+// Health route (Public - no auth needed)
 app.get('/healthz', (req, res) => {
   res.status(200).json({ ok: true, time: new Date().toISOString() });
 });
 
-// tiny test route
+// Test route (Public)
 app.get('/', (req, res) => {
   res.json({ ok: true, msg: 'Server is up. Backend minimal setup works.' });
 });

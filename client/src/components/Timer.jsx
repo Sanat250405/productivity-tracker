@@ -1,59 +1,60 @@
 import React, { useEffect, useState } from 'react';
 
-/**
- * Timer component
- * props:
- * - minutes (number) default: 1
- * - onFinish() called when timer reaches 0
- * - onCancel() optional
- */
-export default function Timer({ minutes = 1, onFinish, onCancel }) {
-  const [secondsLeft, setSecondsLeft] = useState(minutes * 60);
-  const [running, setRunning] = useState(true);
+export default function Timer({ targetTime, onFinish, onCancel }) {
+  const [timeLeft, setTimeLeft] = useState(0);
 
   useEffect(() => {
-    setSecondsLeft(minutes * 60);
-    setRunning(true);
-  }, [minutes]);
+    const calculateTime = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, targetTime - now);
+      if (remaining === 0) onFinish();
+      return remaining;
+    };
 
-  useEffect(() => {
-    if (!running) return;
-    const id = setInterval(() => {
-      setSecondsLeft(s => {
-        if (s <= 1) {
-          clearInterval(id);
-          setRunning(false);
-          if (onFinish) onFinish();
-          return 0;
-        }
-        return s - 1;
-      });
+    setTimeLeft(calculateTime());
+    const interval = setInterval(() => {
+      const remaining = calculateTime();
+      setTimeLeft(remaining);
+      if (remaining <= 0) clearInterval(interval);
     }, 1000);
-    return () => clearInterval(id);
-  }, [running, onFinish]);
 
-  const mm = Math.floor(secondsLeft / 60).toString().padStart(2, '0');
-  const ss = (secondsLeft % 60).toString().padStart(2, '0');
+    return () => clearInterval(interval);
+  }, [targetTime, onFinish]);
+
+  const formatTime = (ms) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    
+    // If > 1 hour, show H:MM:SS, else MM:SS
+    if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
+    return `${pad(m)}:${pad(s)}`;
+  };
 
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <div style={{ fontFamily: 'monospace', fontSize: 16 }}>{mm}:{ss}</div>
-      <div>
-        {running ? (
-          <button className="button small" onClick={() => setRunning(false)}>Pause</button>
-        ) : (
-          <button className="button small" onClick={() => setRunning(true)}>Resume</button>
-        )}
-      </div>
-      <div>
-        <button
-          className="button small"
-          style={{ background: '#ef4444', color: '#fff' }}
-          onClick={() => { setRunning(false); if (onCancel) onCancel(); }}
-        >
-          Cancel
-        </button>
-      </div>
+    <div style={{ 
+      display: 'flex', alignItems: 'center', gap: 10, 
+      background: 'var(--bg-highlight, #f0f0f0)', 
+      padding: '4px 8px 4px 12px', borderRadius: 99,
+      border: '1px solid rgba(0,0,0,0.1)'
+    }}>
+      <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--primary, #007bff)' }}>
+        {formatTime(timeLeft)}
+      </span>
+      <button 
+        onClick={onCancel}
+        style={{
+          border: 'none', background: '#ff4d4f', color: 'white',
+          borderRadius: '50%', width: 20, height: 20,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', fontSize: 16
+        }}
+        title="Stop Timer"
+      >
+        ×
+      </button>
     </div>
   );
 }

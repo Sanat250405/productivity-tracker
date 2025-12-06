@@ -1,5 +1,5 @@
 // client/src/pages/Consistency/Consistency.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import API from '../../api';
 import { useToast } from '../../components/Toast';
 
@@ -30,19 +30,27 @@ export default function Consistency() {
   const [clearing, setClearing] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
 
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
+    isMountedRef.current = true;
     refresh();
     // listen to storage so UI updates if other tab/page modifies activities
     const onStorage = (e) => {
       if (e.key === ACTIVITIES_KEY) refresh();
     };
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    return () => {
+      isMountedRef.current = false;
+      window.removeEventListener('storage', onStorage);
+    };
     // eslint-disable-next-line
   }, []);
 
   // refresh: fetch server activities and merge with local
   const refresh = async () => {
+    // preserve scroll position so UI doesn't jump
+    const scrollY = window.scrollY;
     setLoading(true);
     try {
       let server = [];
@@ -69,9 +77,13 @@ export default function Consistency() {
       const mergedList = Array.from(map.values())
         .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
 
-      setMerged(mergedList);
+      if (isMountedRef.current) {
+        setMerged(mergedList);
+        // restore scroll position
+        window.scrollTo(0, scrollY);
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   };
 
@@ -96,42 +108,69 @@ export default function Consistency() {
     return { total, goals, routines };
   }, [merged]);
 
-  // Clear history action: remove local and try to delete server ones (best-effort)
+  // Clear history action: remove local immediately and attempt server deletes in background (no page changes)
   const clearHistory = async () => {
+    // mark clearing so UI buttons disable
     setClearing(true);
+
     try {
-      // 1) Remove local activities immediately
+      // 1) Remove local activities immediately (optimistic)
       saveActivitiesLocal([]);
-      // 2) Attempt to delete server activities
-      let deleted = 0;
-      let failed = 0;
-      try {
-        const res = await API.get('/activities');
-        const all = Array.isArray(res.data) ? res.data : [];
-        for (const a of all) {
+      // Update UI locally right away without forcing a full refresh
+      setMerged(prev => {
+        // remove any activities that appear to be local (we mark local ids starting with 'a_' in UI)
+        // but safest: remove everything from local storage perspective
+        // keep server items only (we'll attempt to delete them in background if needed)
+        const serverOnly = prev.filter(item => !(String(item._id).startsWith('a_') || !item._id));
+        // If you want to clear everything locally and server-side, you can set [] here.
+        // Here we optimistically assume local cleared and keep server items visible until server cleanup finishes.
+        return serverOnly;
+      });
+
+      show('Cleared local history immediately. Server cleanup running in background.', 'success');
+
+      // 2) Attempt to delete server activities in background (best-effort)
+      (async () => {
+        let deleted = 0;
+        let failed = 0;
+        try {
+          const res = await API.get('/activities');
+          const all = Array.isArray(res.data) ? res.data : [];
+          for (const a of all) {
+            try {
+              await API.delete(`/activities/${a._id}`);
+              deleted++;
+            } catch (errDel) {
+              failed++;
+              console.warn('Failed to delete server activity', a._id, errDel);
+            }
+          }
+        } catch (errFetch) {
+          console.warn('Could not fetch server activities for cleanup', errFetch);
+        }
+
+        // After background cleanup, refresh merged list so server-deleted items disappear.
+        // But do this only if component still mounted to avoid state updates after unmount.
+        if (isMountedRef.current) {
           try {
-            await API.delete(`/activities/${a._id}`);
-            deleted++;
-          } catch (errDel) {
-            failed++;
-            console.warn('Failed to delete server activity', a._id, errDel);
+            await refresh();
+            // inform user of server cleanup results (non-blocking)
+            show(`Server removed: ${deleted}. Failed: ${failed}.`, 'success');
+          } catch (err) {
+            console.warn('Background refresh after cleanup failed', err);
+          } finally {
+            if (isMountedRef.current) setClearing(false);
+            if (isMountedRef.current) setShowClearModal(false);
           }
         }
-      } catch (errFetch) {
-        // cannot fetch — mark as failed but do not block
-        console.warn('Could not fetch server activities for cleanup', errFetch);
-      }
-
-      // refresh merged list (local empty + server may have reduced items)
-      await refresh();
-
-      show(`Cleared local history. Server removed: ${deleted}. Failed: ${failed}.`, 'success');
+      })();
     } catch (err) {
       console.error('Clear history failed', err);
-      show('Failed to clear history', 'error');
-    } finally {
-      setClearing(false);
-      setShowClearModal(false);
+      if (isMountedRef.current) {
+        show('Failed to clear history', 'error');
+        setClearing(false);
+        setShowClearModal(false);
+      }
     }
   };
 
@@ -143,21 +182,23 @@ export default function Consistency() {
           <div style={{ color: 'var(--muted)', fontSize: 13 }}>Your activity history and progress</div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{ color: 'var(--muted)', fontSize: 13 }}>
             Total: <strong>{summary.total}</strong> · Goals: <strong>{summary.goals}</strong> · Routines: <strong>{summary.routines}</strong>
           </div>
 
           <button
+            type="button"
             className="button"
             onClick={() => refresh()}
             disabled={loading}
             title="Refresh history"
           >
-            Refresh
+            {loading ? 'Refreshing…' : 'Refresh'}
           </button>
 
           <button
+            type="button"
             className="button btn-danger"
             onClick={() => setShowClearModal(true)}
             disabled={merged.length === 0 || clearing}
@@ -200,7 +241,6 @@ export default function Consistency() {
                           </div>
 
                           <div style={{ color: '#6b7280', fontSize: 13 }}>
-                            {/* No delete button here — clear only via Clear History */}
                             {String(item._id).startsWith('a_') ? <span style={{ color: '#9ca3af' }}>Local</span> : <span>Server</span>}
                           </div>
                         </div>
@@ -222,8 +262,8 @@ export default function Consistency() {
             <p>This will remove all locally stored activities immediately and will attempt to remove server-side activity records (best-effort). This action cannot be undone.</p>
 
             <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="button btn-ghost" onClick={() => setShowClearModal(false)} disabled={clearing}>Cancel</button>
-              <button className="button btn-danger" onClick={clearHistory} disabled={clearing}>
+              <button type="button" className="button btn-ghost" onClick={() => setShowClearModal(false)} disabled={clearing}>Cancel</button>
+              <button type="button" className="button btn-danger" onClick={clearHistory} disabled={clearing}>
                 {clearing ? 'Clearing…' : 'Clear History'}
               </button>
             </div>
