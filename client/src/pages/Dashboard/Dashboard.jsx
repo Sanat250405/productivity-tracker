@@ -39,6 +39,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   // eslint-disable-next-line     
   const [syncing, setSyncing] = useState(false);
+  // eslint-disable-next-line
   const [isDark, setIsDark] = useState(false);
 
   // canonical lists used to decide whether an activity is "valid" or orphaned
@@ -236,16 +237,8 @@ export default function Dashboard() {
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{ fontSize: 13, color: '#6b7280' }}>
-            
           </div>
-          <button
-            className="button small"
-            onClick={() => applyDark(!isDark)}
-            aria-pressed={isDark}
-            title="Toggle dark mode"
-          >
-            {isDark ? 'Dark' : 'Light'}
-          </button>
+          
         </div>
       </div>
 

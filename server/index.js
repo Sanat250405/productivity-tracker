@@ -19,6 +19,7 @@ connectDB();
 // Mount API routes
 // (Auth is handled INSIDE these route files, so we don't need it globally here)
 app.use('/api/goals', goalsRoutes);
+app.use('/api/routines', require('./routes/routines'));
 app.use('/api/activities', activitiesRouter);
 
 // Health route (Public - no auth needed)

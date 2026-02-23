@@ -50,6 +50,7 @@ body.dark {
   --accent: #60a5fa;
   background: var(--bg);
   color: var(--text);
+  
 }
 
 p,

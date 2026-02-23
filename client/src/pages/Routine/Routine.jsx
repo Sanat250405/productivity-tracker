@@ -9,12 +9,14 @@ const ROUTINES_KEY = 'pt_routines_v1';
 const ACTIVITIES_KEY = 'pt_activities_v1';
 const RUNNING_TIMER_KEY = 'pt_running_routine_timer_v1';
 
+
 // --- localStorage helpers ---
+//eslint-disable-next-line
 function loadRoutines() {
   try {
     const raw = localStorage.getItem(ROUTINES_KEY);
     return raw ? JSON.parse(raw) : [];
-  } catch {
+  } catch (err) {
     return [];
   }
 }
@@ -33,7 +35,9 @@ function loadActivities() {
     return [];
   }
 }
+
 function saveActivities(list) {
+  
   try {
     localStorage.setItem(ACTIVITIES_KEY, JSON.stringify(list));
   } catch (err) {
@@ -71,9 +75,9 @@ const isoDate = (d = new Date()) => d.toISOString().split('T')[0];
 export default function Routine() {
   const { show } = useToast();
 
-  // data
-  const [routines, setRoutines] = useState(loadRoutines());
-  const [activities, setActivities] = useState(loadActivities());
+  // Change your data states to start empty
+  const [routines, setRoutines] = useState([]);
+  const [activities, setActivities] = useState([]);
 
   // running timer: { id, targetTime } | null
   const [running, setRunning] = useState(null);
@@ -106,13 +110,19 @@ export default function Routine() {
 
   // Keep activities state up to date with localStorage if other pages modify it
   useEffect(() => {
-    const onStorage = () => {
-      setActivities(loadActivities());
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+    const fetchData = async () => {
+      try {
+        const rRes = await API.get('/routines');
+        setRoutines(Array.isArray(rRes.data) ? rRes.data : []);
 
+        const aRes = await API.get('/activities');
+        setActivities(Array.isArray(aRes.data) ? aRes.data : []);
+      } catch (err) {
+        console.error('Failed to fetch data', err);
+      }
+    };
+    fetchData();
+  }, []);
   // restore running timer on mount (for page changes / reload)
   useEffect(() => {
     const stored = loadRunningTimer();
@@ -211,8 +221,8 @@ export default function Routine() {
     return `${hh}:${mm} ${period}`;
   };
 
-  // Save routine (new or edit)
-  const saveRoutine = () => {
+// Save routine (new or edit)
+  const saveRoutine = async () => { // <--- 1. ADD 'async' HERE
     const trimmed = (title || '').trim();
     if (!trimmed) {
       show('Please enter routine title', 'warning');
@@ -234,36 +244,38 @@ export default function Routine() {
     if (amPm === 'PM') h24 += 12;
     const storedStart = `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-    if (editing) {
-      setRoutines(prev =>
-        prev.map(r =>
-          r._id === editing._id
-            ? {
-              ...r,
-              title: trimmed,
-              startTime: storedStart,
-              durationMinutes: norm.total,
-              updatedAt: new Date().toISOString(),
-            }
-            : r
-        )
-      );
-      show('Routine updated', 'success');
-    } else {
-      const r = {
-        _id: 'r_' + Date.now(),
-        title: trimmed,
-        startTime: storedStart,
-        durationMinutes: norm.total,
-        createdAt: new Date().toISOString(),
-      };
-      setRoutines(prev => [r, ...prev]);
-      show('Routine added', 'success');
+    // --- 2. REPLACE THE IF(EDITING) / ELSE BLOCK WITH THIS ---
+    const payload = {
+      title: trimmed,
+      startTime: storedStart,
+      durationMinutes: norm.total,
+    };
+
+    try {
+      if (editing) {
+        // Tell server to update
+        const res = await API.put(`/routines/${editing._id}`, payload);
+        
+        // Update local state with the server's response
+        setRoutines(prev =>
+          prev.map(r => (r._id === editing._id ? res.data : r))
+        );
+        show('Routine updated', 'success');
+      } else {
+        // Tell server to create
+        const res = await API.post('/routines', payload);
+        
+        // Add the new routine (with the real DB _id) to local state
+        setRoutines(prev => [res.data, ...prev]);
+        show('Routine added', 'success');
+      }
+    } catch (err) {
+      console.error('Failed to save routine', err);
+      show('Error saving to database', 'error');
     }
 
     closeModal();
   };
-
   // Delete routine: show modal then perform removal
   const requestDeleteRoutine = (id) => {
     setDeleteId(id);
@@ -275,42 +287,19 @@ export default function Routine() {
     try {
       setDeleting(true);
 
-      // remove routine
+      // 1. Tell the database to delete the routine
+      await API.delete(`/routines/${deleteId}`);
+
+      // 2. Remove the routine from your frontend state
       setRoutines(prev => prev.filter(r => r._id !== deleteId));
 
-      // remove related local activities (routine type)
-      try {
-        const local = loadActivities();
-        const filtered = local.filter(
-          a => !(a.type === 'routine' && String(a.refId) === String(deleteId))
-        );
-        saveActivities(filtered);
-        setActivities(filtered);
-      } catch (errLocal) {
-        console.warn('Failed to remove local activities for deleted routine', errLocal);
-      }
+      // 3. Remove any related activities from frontend state immediately 
+      // (so they disappear from the screen without needing a page refresh)
+      setActivities(prev => 
+        prev.filter(a => !(a.type === 'routine' && String(a.refId) === String(deleteId)))
+      );
 
-      // best-effort: remove server-side activities referencing this routine
-      (async () => {
-        try {
-          const res = await API.get('/activities');
-          const all = Array.isArray(res.data) ? res.data : [];
-          const matches = all.filter(
-            a => a.type === 'routine' && String(a.refId) === String(deleteId)
-          );
-          for (const act of matches) {
-            try {
-              await API.delete(`/activities/${act._id}`);
-            } catch (e) {
-              console.warn('Failed deleting server activity', act._id, e);
-            }
-          }
-        } catch (errFetch) {
-          console.warn('Could not fetch activities to clean up server-side', errFetch);
-        }
-      })();
-
-      show('Routine removed and related activities cleaned locally', 'success');
+      show('Routine removed successfully', 'success');
     } catch (err) {
       console.error('Delete routine error', err);
       show('Failed to delete routine', 'error');
@@ -320,99 +309,62 @@ export default function Routine() {
       setShowDeleteModal(false);
     }
   };
-
   // --- Activity helpers for "Done" / "Undo" ---
 
-  // mark done for routine r: local fallback + POST to /activities
+// mark done for routine r: POST to /activities
   const markDoneLocal = async (r) => {
     const now = new Date();
     const completedAt = now.toISOString();
     const dateString = isoDate(now);
 
-    const refId = r._id || 'r_' + r.title;
-
-    const activity = {
-      _id: 'a_' + Date.now(),
-      type: 'routine',
-      refId,
-      title: r.title,
-      completedAt,
-      dateString,
-    };
-
-    // local save
     try {
-      const local = loadActivities();
-      local.unshift(activity);
-      saveActivities(local);
-      setActivities(local);
-    } catch (err) {
-      console.warn('Failed saving local activity', err);
-    }
-
-    // stop timer
-    setRunning(null);
-    clearRunningTimer();
-    show(`Marked "${r.title}" done — recorded locally.`, 'success');
-
-    // post to server (idempotent)
-    try {
-      await API.post('/activities', {
+      // 1. Post directly to your database
+      const res = await API.post('/activities', {
         type: 'routine',
-        refId,
+        refId: r._id, // Send the real DB _id of the routine
         title: r.title,
         completedAt,
         dateString,
       });
+
+      // 2. Update frontend state with the newly created activity from the server
+      setActivities(prev => [res.data, ...prev]);
+
+      // 3. Stop timer
+      setRunning(null);
+      clearRunningTimer();
+      
+      show(`Marked "${r.title}" done`, 'success');
     } catch (err) {
-      console.warn('Failed to post routine activity to server (kept locally)', err);
+      console.error('Failed to post routine activity to server', err);
+      show('Failed to record activity', 'error');
     }
   };
 
   // Undo today's completion for a routine (remove today's activity)
+  // Undo today's completion for a routine
   const undoDone = async (r) => {
     const date = isoDate();
-    // remove local items for that routine with today's date
+    
     try {
-      const local = loadActivities();
-      const filtered = local.filter(
-        a =>
-          !(
-            a.type === 'routine' &&
-            String(a.refId) === String(r._id) &&
-            a.dateString === date
-          )
+      // 1. Find the specific activity to delete directly from our current React state
+      const target = activities.find(
+        a => a.type === 'routine' && String(a.refId) === String(r._id) && a.dateString === date
       );
-      saveActivities(filtered);
-      setActivities(filtered);
-    } catch (err) {
-      console.warn('Failed to remove local activity', err);
-    }
 
-    // best-effort: delete matching server activities for that routine+date
-    try {
-      const res = await API.get('/activities');
-      const all = Array.isArray(res.data) ? res.data : [];
-      const matches = all.filter(
-        a =>
-          a.type === 'routine' &&
-          String(a.refId) === String(r._id) &&
-          a.dateString === date
-      );
-      for (const act of matches) {
-        try {
-          await API.delete(`/activities/${act._id}`);
-        } catch (errDel) {
-          console.warn('Failed to delete server activity', act._id, errDel);
-        }
+      if (target) {
+        // 2. Tell the database to delete it
+        await API.delete(`/activities/${target._id}`);
+        
+        // 3. Remove it from the UI immediately
+        setActivities(prev => prev.filter(a => a._id !== target._id));
+        show('Undone for today', 'success');
       }
-      show('Undone for today', 'success');
     } catch (err) {
-      console.warn('Failed to undo server-side activities', err);
-      show('Undone locally; server cleanup may be pending', 'info');
+      console.error('Undo error', err);
+      show('Failed to undo activity', 'error');
     }
   };
-
   // check if a routine is done today: search activities state
   const isDoneToday = (r) => {
     const today = isoDate();

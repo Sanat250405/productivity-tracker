@@ -2,31 +2,27 @@
 const mongoose = require('mongoose');
 
 const GoalSchema = new mongoose.Schema({
-  // The User ID (Required to link goal to a person)
+  // 1. ADD THIS FIELD: Tag the goal with the user's Firebase UID
   user: { 
     type: String, 
-    required: true, 
-    index: true 
+    required: true,
+    index: true
   },
-
+  
   title: { 
     type: String, 
     required: true 
   },
-
   description: { 
     type: String 
   },
-
   completed: { 
     type: Boolean, 
     default: false 
   },
-
   completedAt: { 
     type: Date 
   }
 }, { timestamps: true });
 
-// THIS LINE IS CRITICAL - It exports the model so the controller can use it
 module.exports = mongoose.model('Goal', GoalSchema);

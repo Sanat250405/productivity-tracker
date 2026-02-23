@@ -4,6 +4,7 @@ const Activity = require('../models/Activity');
 
 // @desc    Get goals
 // @route   GET /api/goals
+
 const getGoals = async (req, res) => {
   try {
     // 1. Safety Check
@@ -11,18 +12,9 @@ const getGoals = async (req, res) => {
         return res.status(401).json({ message: 'Not authorized' });
     }
 
-    let query = {};
-
-    // 2. LOGIC: Admin sees ALL. User sees OWN.
-    if (req.user.isAdmin) {
-        console.log(`👑 Admin Access: Fetching ALL goals for ${req.user.email}`);
-        query = {}; // Empty query = Find Everything
-    } else {
-        // Normal User
-        query = { user: req.user.uid };
-    }
-
-    const goals = await Goal.find(query).sort({ createdAt: -1 });
+    // 2. STRICT LOGIC: Everyone (even admins) only sees their OWN personal goals
+    const goals = await Goal.find({ user: req.user.uid }).sort({ createdAt: -1 });
+    
     res.status(200).json(goals);
   } catch (error) {
     console.error('Fetch Error:', error);
